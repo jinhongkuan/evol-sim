@@ -10,6 +10,7 @@ class MDP_Learner:
     @staticmethod
     def _normalize(row):
         new_r = []
+        pair_sum = 1/(len(row)/2)
         for i in range(0, len(row)-1, 2):
             new_r += [row[i], 1 - row[i]]
         return new_r
@@ -18,6 +19,7 @@ class MDP_Learner:
 
     def make_matrix_consistent(self):
         self.matrix = np.concatenate((self.matrix[:,0:1], 
+        self.matrix[:,1:2]/sum(self.matrix[:,1:2]),
         np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,1:self.state_size+1]),
         np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,self.state_size+1:])), axis=1) 
 
@@ -25,7 +27,8 @@ class MDP_Learner:
         # This matrix is a Nx(2N+1) representation of learning strategy 
         # Each row represents a decision node, expressed in: action, trans. prob | opp. cooperate | opp. defect
         if set_strategy is None:
-            self.matrix = np.concatenate((np.asarray([[x] for x in np.random.choice([0,1], size=2, replace=False)]), #np.random.randint(low=0, high=2, size=(state_size,1))
+            self.matrix = np.concatenate(([[i%2] for i in range(state_size)], #np.random.randint(low=0, high=2, size=(state_size,1))
+            [[1/len(state_size)] for i in range(state_size)],
             np.random.rand(state_size, state_size),
             np.random.rand(state_size, state_size)), axis=1)
         else:
@@ -34,10 +37,12 @@ class MDP_Learner:
         
         self.state_size = state_size
         self.make_matrix_consistent()
-        self.state_index = 0
+        self.state_index = np.random.choice(a=self.matrix.shape[0], p=self.matrix[:,1])
         self.prev_state_observation = (0,1)
         self.age = 0
         
+    def refresh(self):
+        self.state_index = np.random.choice(a=self.matrix.shape[0], p=self.matrix[:,1])
 
     def play(self):
         return self.matrix[self.state_index,0]
@@ -45,17 +50,22 @@ class MDP_Learner:
     def observe(self, observation):
         if observation is not None:
             if observation == 0:
-                trans_prob = self.matrix[self.state_index, 1:self.state_size+1]
+                trans_prob = self.matrix[self.state_index, 2:self.state_size+2]
             else:
-                trans_prob = self.matrix[self.state_index, self.state_size+1:]
+                trans_prob = self.matrix[self.state_index, self.state_size+2:]
             
             next_state = np.random.choice(range(self.state_size),p=trans_prob)
-            self.prev_state_observation = (self.state_index, int(next_state+1+observation*self.state_size))
+            self.prev_state_observation = (self.state_index, int(next_state+2+observation*self.state_size))
             self.state_index = next_state
 
     def mutate(self, rate):
+        # Mutate mixed strategy
         for i in range(self.matrix.shape[0]):
-            for j in range(1,self.matrix.shape[1]):
+            self.matrix[i,1] *= (1 + np.random.random() * rate - rate/2) 
+        
+        # Mutate transition probabilities 
+        for i in range(self.matrix.shape[0]):
+            for j in range(2,self.matrix.shape[1]):
                 # self.matrix[i,j] *= (1 + np.random.random() * rate - rate/2) 
                 # self.matrix[i,j] += (np.random.random() * rate) - rate/2 
                 positive_b = (np.random.normal(loc=0, scale=(rate**2)))
@@ -92,8 +102,8 @@ class Population:
                         combinations[play] = 0 
                     combinations[play] += 1
                 if self.fresh_mind:
-                    self.pops[i].state_index = 0
-                    self.pops[j].state_index = 0
+                    self.pops[i].refresh()
+                    self.pops[j].refresh()
 
         '''
         tmp_scores = list(map(lambda x : x**3, scores))
@@ -123,7 +133,7 @@ os.chdir(os.path.dirname(__file__))
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "pd_random_5k_2"
+name = "pd_random_5k_3"
 prisoner = [[[1,4],[3,3]],
                 [[2,2],[4,1]]]
 
@@ -158,11 +168,11 @@ plt.show()
 with open(name + ".csv", "w", newline="") as f:
     f_writer = csv.writer(f)
     f_writer.writerow(["Seed", rand_seed])
-    f_writer.writerow(["Action", "C|C", "D|C", "C|D", "D|D"])
+    f_writer.writerow(["Action", "Start. P", "C|C", "C|D", ])
     for i in range(len(Pops.pops)):
-        mat = Pops.pops[i].matrix
+        mat = np.rand Pops.pops[i].matrix
         for r in range(mat.shape[0]):
-            for c in range(mat.shape[1]):
+            for c in range(1,mat.shape[1]):
                 mat[r,c] = round(mat[r,c]*100)/100
         f_writer.writerows(mat)
         f_writer.writerow([])
