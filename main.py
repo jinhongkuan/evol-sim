@@ -68,9 +68,7 @@ class MDP_Learner:
             for j in range(2,self.matrix.shape[1]):
                 # self.matrix[i,j] *= (1 + np.random.random() * rate - rate/2) 
                 # self.matrix[i,j] += (np.random.random() * rate) - rate/2 
-                positive_b = (np.random.normal(loc=0, scale=(rate**2)))
-                negative_b = (np.random.normal(loc=-1, scale=((0.5)**2)) * rate)
-                self.matrix[i,j] += np.random.choice([positive_b], size = 1)
+                self.matrix[i,j] += np.random.normal(loc=0, scale=rate)
                 self.matrix[i,j] = max(0, min(1, self.matrix[i,j]))
                 
 
@@ -170,7 +168,7 @@ with open(name + ".csv", "w", newline="") as f:
     f_writer.writerow(["Seed", rand_seed])
     f_writer.writerow(["Action", "Start. P", "C|C", "C|D", ])
     for i in range(len(Pops.pops)):
-        mat = np.rand Pops.pops[i].matrix
+        mat = Pops.pops[i].matrix
         for r in range(mat.shape[0]):
             for c in range(1,mat.shape[1]):
                 mat[r,c] = round(mat[r,c]*100)/100
