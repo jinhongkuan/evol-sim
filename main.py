@@ -225,7 +225,7 @@ p_matrix = prisoner
 iterations = 40000
 
 window = 50
-repetition = 10
+repetition = 100
 play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
@@ -238,6 +238,7 @@ tally = {"CC":[], "C/D":[], "DD":[]}
 test_gene_coverage = []
 fossils = []
 for i in range(iterations):
+    
     for pop in Pops.pops:
         test_gene_coverage += [pop.matrix[0,2]] 
     combinations = (Pops.aggregate_selection(np.asarray([[p_matrix[0][1],p_matrix[0][0]],
@@ -245,6 +246,7 @@ for i in range(iterations):
     for key in combinations:
         tally[key] += [combinations[key]]
     if i % window == 0:
+        print(i)
         all_matrices = []
         for pop in Pops.pops:
             all_matrices += copy([pop.matrix])
