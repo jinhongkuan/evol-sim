@@ -222,7 +222,7 @@ prisoner = [[[1,4],[3,3]],
 no_conflict = [[[3,2],[4,4]],
                 [[1,1],[2,3]]]
 p_matrix = prisoner
-iterations = 40000
+iterations = 100
 
 window = 50
 repetition = 100
