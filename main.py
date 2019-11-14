@@ -212,7 +212,6 @@ class Population:
         '''
         return combinations
 
-os.chdir(os.path.dirname(__file__))
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
