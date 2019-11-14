@@ -9,26 +9,27 @@ class MDP_Learner:
 
     @staticmethod
     def _normalize(row):
-        new_r = []
-        pair_sum = 1/(len(row)/2)
-        for i in range(0, len(row)-1, 2):
-            new_r += [row[i], 1 - row[i]]
-        return new_r
-        # return row/sum(row)
+        # new_r = []
+        # pair_sum = 1/(len(row)/2)
+        # for i in range(0, len(row)-1, 2):
+        #     new_r += [row[i], 1 - row[i]]
+        # return new_r
+        row = abs(row)
+        return row/sum(row)
         # return np.exp(row)/sum(np.exp(row))
 
     def make_matrix_consistent(self):
         self.matrix = np.concatenate((self.matrix[:,0:1], 
-        self.matrix[:,1:2]/sum(self.matrix[:,1:2]),
-        np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,1:self.state_size+1]),
-        np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,self.state_size+1:])), axis=1) 
+        abs(self.matrix[:,1:2]/sum(self.matrix[:,1:2])),
+        np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,2:self.state_size+2]),
+        np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,self.state_size+2:])), axis=1) 
 
     def __init__(self, state_size, set_strategy=None):
         # This matrix is a Nx(2N+1) representation of learning strategy 
         # Each row represents a decision node, expressed in: action, trans. prob | opp. cooperate | opp. defect
         if set_strategy is None:
-            self.matrix = np.concatenate(([[i%2] for i in range(state_size)], #np.random.randint(low=0, high=2, size=(state_size,1))
-            [[1/len(state_size)] for i in range(state_size)],
+            self.matrix = np.concatenate(([[i%2] for i in range(state_size)],
+            [[1/state_size] for i in range(state_size)],
             np.random.rand(state_size, state_size),
             np.random.rand(state_size, state_size)), axis=1)
         else:
@@ -53,26 +54,69 @@ class MDP_Learner:
                 trans_prob = self.matrix[self.state_index, 2:self.state_size+2]
             else:
                 trans_prob = self.matrix[self.state_index, self.state_size+2:]
-            
+    
             next_state = np.random.choice(range(self.state_size),p=trans_prob)
             self.prev_state_observation = (self.state_index, int(next_state+2+observation*self.state_size))
             self.state_index = next_state
 
+    def get_joint_mutation(self, rate, array):
+        normal_values = np.zeros(len(array))
+        projected = copy(array)
+        for i in range(len(projected)):
+            j = (i+1) % len(projected)
+            alpha = np.random.normal(loc=0, scale=rate)
+            normal_values[i] += alpha 
+            normal_values[j] -= alpha  
+            projected[i] += alpha 
+            projected[j] -= alpha 
+        '''
+        scaling = 1.0
+        excess = max(i_after - 1 if i_after > 1 else abs(min(0, i_after)),
+        j_after - 1 if j_after > 1 else abs(min(0, j_after)))
+        ''' 
+        return normal_values
+
+        lognormal_values = np.zeros(len(array))
+        cumulative_product = 1
+        for s in range(len(array)-1):
+            lognormal_values[s] = np.random.lognormal(mean=0, sigma=rate)
+            cumulative_product *= lognormal_values[s]
+        lognormal_values[len(array)-1] = 1/cumulative_product 
+        normal_values = np.log(lognormal_values)
+
+        projected = copy(array)
+        projected += normal_values 
+        scaling = np.ones(len(array))
+        for j in range(len(array)):
+            excess = 0
+            if projected[j] < 0:
+                excess = abs(projected[j])
+            elif projected[j] > 1:
+                excess = projected[j]-1 
+            scaling[j] = 1-excess/abs(normal_values[j])
+        # Apply scaling to prevent illegal probabilities 
+        normal_values *= min(scaling)
+
+        return normal_values
+
     def mutate(self, rate):
         # Mutate mixed strategy
-        for i in range(self.matrix.shape[0]):
-            self.matrix[i,1] *= (1 + np.random.random() * rate - rate/2) 
+        self.matrix[:,1] += self.get_joint_mutation(rate, self.matrix[:,1])
         
         # Mutate transition probabilities 
         for i in range(self.matrix.shape[0]):
-            for j in range(2,self.matrix.shape[1]):
+            for obs_shift in range(2): # Do calculation separately for the Obs(Coop) and Ops(Defect) sets of columns
+                shift = 2 + obs_shift * self.state_size
+                normal_values = self.get_joint_mutation(rate,self.matrix[i,shift:shift+self.state_size])
+                self.matrix[i,shift:shift+self.state_size] += normal_values
+                # Expected delta positive should be equal to expected delta negative = rate 
                 # self.matrix[i,j] *= (1 + np.random.random() * rate - rate/2) 
                 # self.matrix[i,j] += (np.random.random() * rate) - rate/2 
-                self.matrix[i,j] += np.random.normal(loc=0, scale=rate)
-                self.matrix[i,j] = max(0, min(1, self.matrix[i,j]))
+                # self.matrix[i,j] += np.random.normal(loc=0, scale=rate)
+                    
                 
 
-        self.make_matrix_consistent() 
+        self.make_matrix_consistent() # Only to fix floating-point error
 
            
 class Population:
@@ -113,7 +157,7 @@ class Population:
             new_pops[-1].mutate(0.001)
             new_pops[-1].age = 0 
         '''
-        
+        '''
         # Kill off half and clone the rest 
         new_pops = sorted([(scores[i], self.pops[i]) for i in range(len(scores))], key=lambda x:x[0], reverse=True) 
         new_pops = new_pops[:len(scores)//2]
@@ -122,7 +166,20 @@ class Population:
             new_pops[i].age += 1
             new_pops += [deepcopy(new_pops[i])]
             new_pops[-1].age = 0
-            new_pops[-1].mutate(0.15) 
+            new_pops[-1].mutate(0.02) 
+        
+        self.pops = new_pops
+        '''
+        # Kill off half and clone the rest 
+        new_pops = copy(self.pops) 
+        np.random.shuffle(new_pops) 
+        new_pops = new_pops[:len(scores)//2]
+      
+        for i in range(len(scores)//2):
+            new_pops[i].age += 1
+            new_pops += [deepcopy(new_pops[i])]
+            new_pops[-1].age = 0
+            new_pops[-1].mutate(0.02) 
         
         self.pops = new_pops
         return combinations
@@ -138,14 +195,14 @@ prisoner = [[[1,4],[3,3]],
 no_conflict = [[[3,2],[4,4]],
                 [[1,1],[2,3]]]
 p_matrix = prisoner
-iterations = 1000
+iterations = 500
 
-window = 50
+window = 1
 repetition = 10 
 play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
-tit_for_tat = np.asarray([[0,1.0,0.0,0.0,1.0], [1,1.0,0.0,0.0,1.0]])
-Pops = Population(10,2, repetition, fresh_mind=True, set_strategy=tit_for_tat)
+tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
+Pops = Population(10,2, repetition, fresh_mind=True)
 name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
