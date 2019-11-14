@@ -69,11 +69,14 @@ class MDP_Learner:
             normal_values[j] -= alpha  
             projected[i] += alpha 
             projected[j] -= alpha 
-        '''
-        scaling = 1.0
-        excess = max(i_after - 1 if i_after > 1 else abs(min(0, i_after)),
-        j_after - 1 if j_after > 1 else abs(min(0, j_after)))
-        ''' 
+        min_scaling = 1.0
+        for i in range(len(normal_values)):
+            i_after = projected[i]
+            excess = i_after - 1 if i_after > 1 else abs(min(0, i_after))
+            scaling = 1 - excess/abs(normal_values[i])
+            min_scaling = min(min_scaling, scaling)
+        normal_values *= min_scaling
+
         return normal_values
 
         lognormal_values = np.zeros(len(array))
@@ -86,6 +89,9 @@ class MDP_Learner:
 
         projected = copy(array)
         projected += normal_values 
+
+        '''
+        # Apply scaling to prevent illegal probabilities 
         scaling = np.ones(len(array))
         for j in range(len(array)):
             excess = 0
@@ -94,9 +100,19 @@ class MDP_Learner:
             elif projected[j] > 1:
                 excess = projected[j]-1 
             scaling[j] = 1-excess/abs(normal_values[j])
-        # Apply scaling to prevent illegal probabilities 
+        
         normal_values *= min(scaling)
+        '''
 
+        for j in range(len(array)):
+            excess = 0
+            if projected[j] < 0:
+                excess = abs(projected[j])
+                projected[j] += 2*excess
+            elif projected[j] > 1:
+                excess = projected[j]-1 
+                projected[j] -= 2*excess
+            
         return normal_values
 
     def mutate(self, rate):
@@ -111,8 +127,17 @@ class MDP_Learner:
                 self.matrix[i,shift:shift+self.state_size] += normal_values
                 # Expected delta positive should be equal to expected delta negative = rate 
                 # self.matrix[i,j] *= (1 + np.random.random() * rate - rate/2) 
-                # self.matrix[i,j] += (np.random.random() * rate) - rate/2 
-                # self.matrix[i,j] += np.random.normal(loc=0, scale=rate)
+                # self.matrix[i,j] += (np.random.random() * rate) - rate/2
+            
+            '''
+            for j in range(2, self.matrix.shape[1]):
+                self.matrix[i,j] += np.random.normal(loc=0, scale=rate)
+                if self.matrix[i,j] > 1:
+                    self.matrix[i,j] = 1 
+                elif self.matrix[i,j] < 0:
+                    self.matrix[i,j] = 0
+            '''
+
                     
                 
 
@@ -157,7 +182,7 @@ class Population:
             new_pops[-1].mutate(0.001)
             new_pops[-1].age = 0 
         '''
-        '''
+        
         # Kill off half and clone the rest 
         new_pops = sorted([(scores[i], self.pops[i]) for i in range(len(scores))], key=lambda x:x[0], reverse=True) 
         new_pops = new_pops[:len(scores)//2]
@@ -169,6 +194,8 @@ class Population:
             new_pops[-1].mutate(0.02) 
         
         self.pops = new_pops
+        
+
         '''
         # Kill off half and clone the rest 
         new_pops = copy(self.pops) 
@@ -179,42 +206,57 @@ class Population:
             new_pops[i].age += 1
             new_pops += [deepcopy(new_pops[i])]
             new_pops[-1].age = 0
-            new_pops[-1].mutate(0.02) 
+            new_pops[-1].mutate(0.01) 
         
         self.pops = new_pops
+        '''
         return combinations
 
 os.chdir(os.path.dirname(__file__))
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "pd_random_5k_3"
+name = "pd_test"
 prisoner = [[[1,4],[3,3]],
                 [[2,2],[4,1]]]
 
 no_conflict = [[[3,2],[4,4]],
                 [[1,1],[2,3]]]
 p_matrix = prisoner
-iterations = 500
+iterations = 40000
 
-window = 1
-repetition = 10 
+window = 50
+repetition = 10
 play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
-Pops = Population(10,2, repetition, fresh_mind=True)
+midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]])
+Pops = Population(10,2, repetition, fresh_mind=True, set_strategy=midway)
 name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
 
+test_gene_coverage = []
+fossils = []
 for i in range(iterations):
+    for pop in Pops.pops:
+        test_gene_coverage += [pop.matrix[0,2]] 
     combinations = (Pops.aggregate_selection(np.asarray([[p_matrix[0][1],p_matrix[0][0]],
                                                         [p_matrix[1][1],p_matrix[1][0]]])))
     for key in combinations:
         tally[key] += [combinations[key]]
-
+    if i % window == 0:
+        all_matrices = []
+        for pop in Pops.pops:
+            all_matrices += copy([pop.matrix])
+        fossils += [all_matrices]
+plt.hist(test_gene_coverage,bins=20)
+plt.show()
 for key in tally:
     plt.plot([sum(tally[key][i*window:(i+1)*window])/window for i in range(iterations//window)])
+
+ 
+
 plt.legend(tally.keys())
 
 plt.savefig(fname=name+".png")
@@ -232,6 +274,11 @@ with open(name + ".csv", "w", newline="") as f:
         f_writer.writerows(mat)
         f_writer.writerow([])
         
-
+while True:
+    generation = int(input("Generation to peek: "))
+    for i, pop_matrix in enumerate(fossils[generation]):
+        print("--- Agent {0} ---".format(i))
+        for row in pop_matrix:
+            print(row)
 
 
