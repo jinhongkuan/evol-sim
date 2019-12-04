@@ -215,7 +215,7 @@ class Population:
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "pd_test"
+name = "data/pd_test"
 prisoner = [[[1,4],[3,3]],
                 [[2,2],[4,1]]]
 
