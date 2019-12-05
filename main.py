@@ -139,7 +139,7 @@ class Interactions:
 					play = play_to_str[i_play+j_play]
 					if play not in data:
 						data[play] = 0 
-						data[play] += 1
+					data[play] += 1
 					if population[i].fresh_mind:
 						population[i].refresh()
 					if population[j].fresh_mind:
@@ -194,25 +194,22 @@ prisoner = [[[1,4],[3,3]],
 no_conflict = [[[3,2],[4,4]],
                 [[1,1],[2,3]]]
 p_matrix = prisoner
-iterations = 10
+iterations = 100
 
 window = 50
-repetition = 100
+repetition = 10
 play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
-template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
 midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]])
-Pops = Population(10,2, repetition, fresh_mind=True, set_strategy=midway)
+Pops = Population(10,2, repetition, fresh_mind=True)
 name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
 
-test_gene_coverage = []
+
 fossils = []
 for i in range(iterations):
-    
-    for pop in Pops.pops:
-        test_gene_coverage += [pop.matrix[0,2]] 
+
     combinations = (Pops.simulate_generation(np.asarray([[p_matrix[0][1],p_matrix[0][0]],
                                                         [p_matrix[1][1],p_matrix[1][0]]]), mutation_rate=0.02))
     for key in combinations:
@@ -223,14 +220,13 @@ for i in range(iterations):
         for pop in Pops.pops:
             all_matrices += copy([pop.matrix])
         fossils += [all_matrices]
-plt.hist(test_gene_coverage,bins=20)
-plt.show()
+
 for key in tally:
     plt.plot([sum(tally[key][i*window:(i+1)*window])/window for i in range(iterations//window)])
 
  
 
-plt.legend(tally.keys())
+plt.legend(list(tally.keys()))
 
 plt.savefig(fname=name+".png")
 plt.show()
