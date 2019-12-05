@@ -184,70 +184,88 @@ class Population:
 		self.pops = Selections.score_cutoff(self.pops, scores, self.population_size)
 		return data
 
-rand_seed = time.time()
-random.seed(rand_seed)
-# Change these
-name = "data/test"
-prisoner = [[[1,4],[3,3]],
-                [[2,2],[4,1]]]
+games = {"prisoner" :
+	                [[[1,4],[3,3]],
+	                [[2,2],[4,1]]],
 
-no_conflict = [[[3,2],[4,4]],
-                [[1,1],[2,3]]]
-p_matrix = prisoner
-iterations = 100
+		"no_conflict":
+					[[[3,2],[4,4]],
+	                [[1,1],[2,3]]]}
 
-window = 50
-repetition = 10
-play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
-tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
-midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]])
-Pops = Population(10,2, repetition, fresh_mind=True)
-name += "_" + str(len(Pops.pops)) + "players"
-np.set_printoptions(precision=2, suppress=True)
-tally = {"CC":[], "C/D":[], "DD":[]}
+strategies = {"tit_for_tat": np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]]),
+			  "midway": np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]])}
 
+def main():
+	# Random seeding
+	rand_seed = time.time()
+	random.seed(rand_seed)
 
-fossils = []
-for i in range(iterations):
+	p_matrix = games["prisoner"]
+	p_matrix = np.asarray([[p_matrix[0][1],p_matrix[0][0]],
+                           [p_matrix[1][1],p_matrix[1][0]]])
 
-    combinations = (Pops.simulate_generation(np.asarray([[p_matrix[0][1],p_matrix[0][0]],
-                                                        [p_matrix[1][1],p_matrix[1][0]]]), mutation_rate=0.02))
-    for key in combinations:
-        tally[key] += [combinations[key]]
-    if i % window == 0:
-        print(i)
-        all_matrices = []
-        for pop in Pops.pops:
-            all_matrices += copy([pop.matrix])
-        fossils += [all_matrices]
+	# Experiment setup
+	# Number of generations
+	iterations = 100
+	# For graphing iterations / window number of points on graph
+	window = 50
+	# Number of games between opponenets
+	repetition = 100 
+	
+	# Make population
+	Pops = Population(population_size = 10, state_size = 2, repetition = repetition, fresh_mind = True, set_strategy = strategies["midway"])	
+	
+	# Change these
+	play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
+	name = "data/test"	
+	name += "_" + str(len(Pops.pops)) + "players"
+	np.set_printoptions(precision=2, suppress=True)
+	tally = {"CC":[], "C/D":[], "DD":[]}
 
-for key in tally:
-    plt.plot([sum(tally[key][i*window:(i+1)*window])/window for i in range(iterations//window)])
+	# for peeking later
+	fossils = []
+	for i in range(iterations):
 
- 
+	    combinations = (Pops.simulate_generation(p_matrix, mutation_rate=0.02))
+	    
+	    for key in combinations:
+	        tally[key] += [combinations[key]]
+	    
+	    # Saving for later peeking
+	    if i % window == 0:
+	        print(i)
+	        all_matrices = []
+	        for pop in Pops.pops:
+	            all_matrices += copy([pop.matrix])
+	        fossils += [all_matrices]
 
-plt.legend(list(tally.keys()))
+	##################
+	# Graphing stuff
+	for key in tally:
+	    plt.plot([sum(tally[key][i*window:(i+1)*window])/window for i in range(iterations//window)])
+	plt.legend(list(tally.keys()))
+	plt.savefig(fname=name+".png")
+	plt.show()
 
-plt.savefig(fname=name+".png")
-plt.show()
+	with open(name + ".csv", "w", newline="") as f:
+	    f_writer = csv.writer(f)
+	    f_writer.writerow(["Seed", rand_seed])
+	    f_writer.writerow(["Action", "Start. P", "C|C", "C|D", ])
+	    for i in range(len(Pops.pops)):
+	        mat = Pops.pops[i].matrix
+	        for r in range(mat.shape[0]):
+	            for c in range(1,mat.shape[1]):
+	                mat[r,c] = round(mat[r,c]*100)/100
+	        f_writer.writerows(mat)
+	        f_writer.writerow([])
+	        
+	while True:
+	    generation = int(input("Generation to peek: "))
+	    for i, pop_matrix in enumerate(fossils[generation]):
+	        print("--- Agent {0} ---".format(i))
+	        for row in pop_matrix:
+	            print(row)
+	##################
 
-with open(name + ".csv", "w", newline="") as f:
-    f_writer = csv.writer(f)
-    f_writer.writerow(["Seed", rand_seed])
-    f_writer.writerow(["Action", "Start. P", "C|C", "C|D", ])
-    for i in range(len(Pops.pops)):
-        mat = Pops.pops[i].matrix
-        for r in range(mat.shape[0]):
-            for c in range(1,mat.shape[1]):
-                mat[r,c] = round(mat[r,c]*100)/100
-        f_writer.writerows(mat)
-        f_writer.writerow([])
-        
-while True:
-    generation = int(input("Generation to peek: "))
-    for i, pop_matrix in enumerate(fossils[generation]):
-        print("--- Agent {0} ---".format(i))
-        for row in pop_matrix:
-            print(row)
-
-
+if __name__ == '__main__':
+	main()
