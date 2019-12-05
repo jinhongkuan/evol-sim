@@ -24,7 +24,7 @@ class MDP_Learner:
         np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,2:self.state_size+2]),
         np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,self.state_size+2:])), axis=1) 
 
-    def __init__(self, state_size, set_strategy=None):
+    def __init__(self, state_size, fresh_mind=False, set_strategy=None):
         # This matrix is a Nx(2N+1) representation of learning strategy 
         # Each row represents a decision node, expressed in: action, trans. prob | opp. cooperate | opp. defect
         if set_strategy is None:
@@ -38,6 +38,7 @@ class MDP_Learner:
         
         self.state_size = state_size
         self.make_matrix_consistent()
+        self.fresh_mind = fresh_mind
         self.state_index = np.random.choice(a=self.matrix.shape[0], p=self.matrix[:,1])
         self.prev_state_observation = (0,1)
         self.age = 0
@@ -59,170 +60,141 @@ class MDP_Learner:
             self.prev_state_observation = (self.state_index, int(next_state+2+observation*self.state_size))
             self.state_index = next_state
 
-    def get_joint_mutation(self, rate, array):
-        normal_values = np.zeros(len(array))
-        projected = copy(array)
-        for i in range(len(projected)):
-            j = (i+1) % len(projected)
-            alpha = np.random.normal(loc=0, scale=rate)
-            normal_values[i] += alpha 
-            normal_values[j] -= alpha  
-            projected[i] += alpha 
-            projected[j] -= alpha 
-        min_scaling = 1.0
-        for i in range(len(normal_values)):
-            i_after = projected[i]
-            excess = i_after - 1 if i_after > 1 else abs(min(0, i_after))
-            scaling = 1 - excess/abs(normal_values[i])
-            min_scaling = min(min_scaling, scaling)
-        normal_values *= min_scaling
-
-        return normal_values
-
-        lognormal_values = np.zeros(len(array))
-        cumulative_product = 1
-        for s in range(len(array)-1):
-            lognormal_values[s] = np.random.lognormal(mean=0, sigma=rate)
-            cumulative_product *= lognormal_values[s]
-        lognormal_values[len(array)-1] = 1/cumulative_product 
-        normal_values = np.log(lognormal_values)
-
-        projected = copy(array)
-        projected += normal_values 
-
-        '''
-        # Apply scaling to prevent illegal probabilities 
-        scaling = np.ones(len(array))
-        for j in range(len(array)):
-            excess = 0
-            if projected[j] < 0:
-                excess = abs(projected[j])
-            elif projected[j] > 1:
-                excess = projected[j]-1 
-            scaling[j] = 1-excess/abs(normal_values[j])
-        
-        normal_values *= min(scaling)
-        '''
-
-        for j in range(len(array)):
-            excess = 0
-            if projected[j] < 0:
-                excess = abs(projected[j])
-                projected[j] += 2*excess
-            elif projected[j] > 1:
-                excess = projected[j]-1 
-                projected[j] -= 2*excess
-            
-        return normal_values
+    
 
     def mutate(self, rate):
         # Mutate mixed strategy
-        self.matrix[:,1] += self.get_joint_mutation(rate, self.matrix[:,1])
+        self.matrix[:,1] += Mutations.pairwise_gaussian(rate, self.matrix[:,1])
         
         # Mutate transition probabilities 
         for i in range(self.matrix.shape[0]):
             for obs_shift in range(2): # Do calculation separately for the Obs(Coop) and Ops(Defect) sets of columns
                 shift = 2 + obs_shift * self.state_size
-                normal_values = self.get_joint_mutation(rate,self.matrix[i,shift:shift+self.state_size])
-                self.matrix[i,shift:shift+self.state_size] += normal_values
-                # Expected delta positive should be equal to expected delta negative = rate 
-                # self.matrix[i,j] *= (1 + np.random.random() * rate - rate/2) 
-                # self.matrix[i,j] += (np.random.random() * rate) - rate/2
-            
-            '''
-            for j in range(2, self.matrix.shape[1]):
-                self.matrix[i,j] += np.random.normal(loc=0, scale=rate)
-                if self.matrix[i,j] > 1:
-                    self.matrix[i,j] = 1 
-                elif self.matrix[i,j] < 0:
-                    self.matrix[i,j] = 0
-            '''
-
-                    
+                mutation_delta = Mutations.pairwise_gaussian(rate,self.matrix[i,shift:shift+self.state_size])
+                self.matrix[i,shift:shift+self.state_size] += mutation_delta
                 
 
         self.make_matrix_consistent() # Only to fix floating-point error
 
-           
+class Mutations:
+	@staticmethod
+	def pairwise_gaussian(rate, array):
+		normal_values = np.zeros(len(array))
+		projected = copy(array)
+		for i in range(len(projected)):
+		    j = (i+1) % len(projected)
+		    alpha = np.random.normal(loc=0, scale=rate)
+		    normal_values[i] += alpha 
+		    normal_values[j] -= alpha  
+		    projected[i] += alpha 
+		    projected[j] -= alpha 
+		min_scaling = 1.0
+		for i in range(len(normal_values)):
+		    i_after = projected[i]
+		    excess = i_after - 1 if i_after > 1 else abs(min(0, i_after))
+		    scaling = 1 - excess/abs(normal_values[i])
+		    min_scaling = min(min_scaling, scaling)
+		normal_values *= min_scaling
+
+		return normal_values
+
+		lognormal_values = np.zeros(len(array))
+		cumulative_product = 1
+		for s in range(len(array)-1):
+		    lognormal_values[s] = np.random.lognormal(mean=0, sigma=rate)
+		    cumulative_product *= lognormal_values[s]
+		lognormal_values[len(array)-1] = 1/cumulative_product 
+		normal_values = np.log(lognormal_values)
+
+		projected = copy(array)
+		projected += normal_values 
+
+		for j in range(len(array)):
+		    excess = 0
+		    if projected[j] < 0:
+		        excess = abs(projected[j])
+		        projected[j] += 2*excess
+		    elif projected[j] > 1:
+		        excess = projected[j]-1 
+		        projected[j] -= 2*excess
+		    
+		return normal_values     
+
+class Interactions:
+
+	@staticmethod 
+	def pairwise(population, payoff_matrix):
+		scores = [0]*len(population)
+		data = {"DD":0, "C/D":0, "CC":0}
+
+		for i in range(len(population)):
+			for j in range(i+1, len(population)):
+				for k in range(repetition):
+					i_play = int(population[i].play())
+					j_play = int(population[j].play())
+					population[i].observe(j_play)
+					population[j].observe(i_play)
+					scores[i] += payoff_matrix[i_play,j_play,0]
+					scores[j] += payoff_matrix[i_play,j_play,1]
+					play = play_to_str[i_play+j_play]
+					if play not in data:
+						data[play] = 0 
+						data[play] += 1
+					if population[i].fresh_mind:
+						population[i].refresh()
+					if population[j].fresh_mind:
+						population[j].refresh()
+
+		return scores, data 
+
+
+class Selections:
+
+	@staticmethod
+	def score_cutoff(population, scores, cutoff):
+		# Kill off the low performers
+		new_pops = sorted([(scores[i], population[i]) for i in range(len(scores))], key=lambda x:x[0], reverse=True) 
+		new_pops = new_pops[:cutoff]
+		new_pops = [x[1] for x in new_pops]
+		return new_pops
+
+	@staticmethod
+	def uniform_random(population, cutoff):
+		return np.random.choice(population, size=cutoff)
+
 class Population:
-    def __init__(self, population_size, state_size, repetition, fresh_mind = False, set_strategy=None):
-        self.pops = [MDP_Learner(state_size, set_strategy) for i in range(population_size)]
-        self.repetition = repetition 
-        self.fresh_mind = fresh_mind
+	def __init__(self, population_size, state_size, repetition, fresh_mind = False, set_strategy=None):
+		self.pops = [MDP_Learner(state_size, fresh_mind, set_strategy) for i in range(population_size)]
+		self.repetition = repetition 
+		self.population_size = population_size
 
-    def aggregate_selection(self, payoff_matrix):
-        np.random.shuffle(self.pops)
-        scores = [0]*len(self.pops)
-        combinations = copy(template_combinations)
-        
-        for i in range(len(self.pops)):
-            for j in range(i+1, len(self.pops)):
-                for k in range(repetition):
-                    i_play = int(self.pops[i].play())
-                    j_play = int(self.pops[j].play())
-                    self.pops[i].observe(j_play)
-                    self.pops[j].observe(i_play)
-                    scores[i] += payoff_matrix[i_play,j_play,0]
-                    scores[j] += payoff_matrix[i_play,j_play,1]
-                    play = play_to_str[i_play+j_play]
-                    if play not in combinations:
-                        combinations[play] = 0 
-                    combinations[play] += 1
-                if self.fresh_mind:
-                    self.pops[i].refresh()
-                    self.pops[j].refresh()
+	def simulate_generation(self, payoff_matrix, mutation_rate):
+		num_offsprings = self.population_size * 1 
 
-        '''
-        tmp_scores = list(map(lambda x : x**3, scores))
-        lottery = tmp_scores/sum(tmp_scores)
-        new_pops = []
-        for i in range(len(self.pops)):
-            index = np.random.choice(a=range(len(self.pops)), p=lottery)
-            new_pops += [deepcopy(self.pops[index])]
-            new_pops[-1].mutate(0.001)
-            new_pops[-1].age = 0 
-        '''
-        
-        # Kill off half and clone the rest 
-        new_pops = sorted([(scores[i], self.pops[i]) for i in range(len(scores))], key=lambda x:x[0], reverse=True) 
-        new_pops = new_pops[:len(scores)//2]
-        new_pops = [x[1] for x in new_pops]
-        for i in range(len(scores)//2):
-            new_pops[i].age += 1
-            new_pops += [deepcopy(new_pops[i])]
-            new_pops[-1].age = 0
-            new_pops[-1].mutate(0.02) 
-        
-        self.pops = new_pops
-        
+		np.random.shuffle(self.pops)
 
-        '''
-        # Kill off half and clone the rest 
-        new_pops = copy(self.pops) 
-        np.random.shuffle(new_pops) 
-        new_pops = new_pops[:len(scores)//2]
-      
-        for i in range(len(scores)//2):
-            new_pops[i].age += 1
-            new_pops += [deepcopy(new_pops[i])]
-            new_pops[-1].age = 0
-            new_pops[-1].mutate(0.01) 
-        
-        self.pops = new_pops
-        '''
-        return combinations
+		parents = Selections.uniform_random(self.pops, num_offsprings)
+		for parent in parents:
+			self.pops += [deepcopy(parent)]
+			self.pops[-1].age = 0 
+			self.pops[-1].mutate(mutation_rate)
+
+		scores, data = Interactions.pairwise(self.pops, payoff_matrix)
+
+		self.pops = Selections.score_cutoff(self.pops, scores, self.population_size)
+		return data
 
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "data/pd_test"
+name = "data/test"
 prisoner = [[[1,4],[3,3]],
                 [[2,2],[4,1]]]
 
 no_conflict = [[[3,2],[4,4]],
                 [[1,1],[2,3]]]
 p_matrix = prisoner
-iterations = 100
+iterations = 10
 
 window = 50
 repetition = 100
@@ -241,8 +213,8 @@ for i in range(iterations):
     
     for pop in Pops.pops:
         test_gene_coverage += [pop.matrix[0,2]] 
-    combinations = (Pops.aggregate_selection(np.asarray([[p_matrix[0][1],p_matrix[0][0]],
-                                                        [p_matrix[1][1],p_matrix[1][0]]])))
+    combinations = (Pops.simulate_generation(np.asarray([[p_matrix[0][1],p_matrix[0][0]],
+                                                        [p_matrix[1][1],p_matrix[1][0]]]), mutation_rate=0.02))
     for key in combinations:
         tally[key] += [combinations[key]]
     if i % window == 0:
