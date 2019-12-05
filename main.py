@@ -126,6 +126,8 @@ class Interactions:
 	def pairwise(population, payoff_matrix):
 		scores = [0]*len(population)
 		data = {"DD":0, "C/D":0, "CC":0}
+		
+		np.random.shuffle(population)
 
 		for i in range(len(population)):
 			for j in range(i+1, len(population)):
@@ -169,18 +171,15 @@ class Population:
 		self.population_size = population_size
 
 	def simulate_generation(self, payoff_matrix, mutation_rate):
-		num_offsprings = self.population_size * 1 
+		num_offsprings = self.population_size * 1
 
-		np.random.shuffle(self.pops)
-
-		parents = Selections.uniform_random(self.pops, num_offsprings)
+		parents = Selections.uniform_random(self.pops, cutoff = num_offsprings)
 		for parent in parents:
 			self.pops += [deepcopy(parent)]
 			self.pops[-1].age = 0 
 			self.pops[-1].mutate(mutation_rate)
 
 		scores, data = Interactions.pairwise(self.pops, payoff_matrix)
-
 		self.pops = Selections.score_cutoff(self.pops, scores, self.population_size)
 		return data
 
