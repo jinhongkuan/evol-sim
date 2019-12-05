@@ -1,3 +1,5 @@
+import cProfile
+import re
 import random
 from copy import copy, deepcopy 
 import numpy as np 
@@ -5,8 +7,14 @@ import matplotlib.pyplot as plt
 import csv 
 import os 
 import time
-class MDP_Learner:
 
+window = 0
+iterations = 0
+repetition = 0
+play_to_str = {}
+
+
+class MDP_Learner:
     @staticmethod
     def _normalize(row):
         # new_r = []
@@ -195,6 +203,8 @@ strategies = {"tit_for_tat": np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0
 			  "midway": np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]])}
 
 def main():
+	global iterations, window, repetition, play_to_str
+
 	# Random seeding
 	rand_seed = time.time()
 	random.seed(rand_seed)
@@ -205,14 +215,14 @@ def main():
 
 	# Experiment setup
 	# Number of generations
-	iterations = 100
+	iterations = 200
 	# For graphing iterations / window number of points on graph
 	window = 50
 	# Number of games between opponenets
-	repetition = 100 
+	repetition = 50 
 	
 	# Make population
-	Pops = Population(population_size = 10, state_size = 2, repetition = repetition, fresh_mind = True, set_strategy = strategies["midway"])	
+	Pops = Population(population_size = 5, state_size = 2, repetition = repetition, fresh_mind = True, set_strategy = strategies["midway"])	
 	
 	# Change these
 	play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
@@ -268,3 +278,4 @@ def main():
 
 if __name__ == '__main__':
 	main()
+	# cProfile.run('main()')
