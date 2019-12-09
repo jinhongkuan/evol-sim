@@ -13,7 +13,7 @@ for i in range(pop_size):
 
 # Iterated evolution
 iterations = 500
-fitness = lambda x : 1/abs(2-x**2)
+fitness = lambda x : abs()
 express = lambda pop : sum([x * 10 ** -i for i,x in enumerate(pop)])
 mutation_rate = 0.02
 record = []

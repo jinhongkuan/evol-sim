@@ -2,10 +2,34 @@ import random
 from copy import copy, deepcopy 
 import numpy as np 
 import matplotlib.pyplot as plt 
-import csv 
+import xlsxwriter 
 import os 
 import time
 class MDP_Learner:
+
+	def compute_similarity(self, other):
+		if self.state_size != other.state_size:
+			return 0
+		behavioral_matrix_i = np.zeros((2, 2**(self.state_size+1) - 1))
+		behavioral_matrix_j = np.zeros((2, 2**(self.state_size+1) - 1))
+		current_step_i = [copy(self.matrix[:,1])]
+		current_step_j = [copy(other.matrix[:,1])]
+		for i in range(self.state_size+1):
+			current_index = 2**i-1
+			for j in range(len(current_step_i)):
+				behavioral_matrix_i[:,current_index+j] = current_step_i[j]
+				behavioral_matrix_j[:,current_index+j] = current_step_j[j]
+			next_step_i = []
+			next_step_j = []
+			for j in range(len(current_step_i)):
+				next_step_i += [np.transpose(np.matmul(np.transpose(current_step_i[j]),self.matrix[:,2:2+self.state_size]))]
+				next_step_i += [np.transpose(np.matmul(np.transpose(current_step_i[j]),self.matrix[:,2+self.state_size:]))]
+				next_step_j += [np.transpose(np.matmul(np.transpose(current_step_j[j]),other.matrix[:,2:2+self.state_size]))]
+				next_step_j += [np.transpose(np.matmul(np.transpose(current_step_j[j]),other.matrix[:,2+self.state_size:]))]
+			current_step_i = next_step_i
+			current_step_j = next_step_j
+		mse = ((behavioral_matrix_i - behavioral_matrix_j)**2).mean(axis=None) 
+		return 1-mse 
 
 	@staticmethod
 	def _normalize(row):
@@ -113,11 +137,60 @@ class Selection:
 		return np.random.choice(population, size=cutoff)
 
 	@staticmethod 
+	def roulette_wheel(kwargs):
+		population = kwargs["population"]
+		score = kwargs["scores"]
+		cutoff = kwargs["cutoff"]
+
+		return np.random.choice(population, size=cutoff, p=score)
+	
+	@staticmethod 
+	def rank_selection(kwargs):
+		population = kwargs["population"]
+		score = kwargs["scores"]
+		cutoff = kwargs["cutoff"]
+
+		sorted_score = sorted(score)
+		for i in range(len(score)):
+			score[i] = sorted_score.index(score[i])
+		
+		score /= sum(score)
+
+		return np.random.choice(population, size=cutoff, p=score)
+
+	@staticmethod 
+	def tournament_selection(kwargs):
+		population = kwargs["population"]
+		score = kwargs["scores"]
+		k = kwargs["k"]
+		p_ = kwargs["p"]
+		cutoff = kwargs["cutoff"]
+		probabilities = [p_*(1-p_)**i for i in range(k)] 
+		probabilities = [x/sum(probabilities) for x in probabilities]
+		new_pops = []
+		for i in range(cutoff):
+			pool = []
+			indices = np.random.choice(a=len(population), size=k)
+			while len(indices) > 0:
+				arg = np.argmax([score[x] for x in indices])
+				pool += [population[arg]]
+				indices = np.concatenate((indices[:arg], indices[arg+1:]))
+			new_pops += [np.random.choice(pool, p=probabilities)]
+		
+		return new_pops
+
+	@staticmethod 
 	def get_selection(command, **kwargs):
 		if command == "truncation":
 			return Selection.truncation(kwargs)
 		elif command == "uniform_random":
 			return Selection.uniform_random(kwargs)
+		elif command == "roulette_wheel":
+			return Selection.roulette_wheel(kwargs)
+		elif command == "rank_selection":
+			return Selection.rank_selection(kwargs)
+		elif command == "tournament_selection":
+			return Selection.tournament_selection(kwargs)
 
 class Interaction:
 
@@ -159,8 +232,9 @@ class Population:
 		self.repetition = repetition 
 		self.fresh_mind = fresh_mind
 		self.population_size = population_size
+		self.state_size = state_size
 
-	def aggregate_selection(self, payoff_matrix_, interaction, parent_sel, survivor_sel, overlap, num_offsprings):
+	def aggregate_selection(self, payoff_matrix_, interaction, parent_sel, survivor_sel, overlap, num_offsprings, k_=0, p_=0):
 
 		np.random.shuffle(self.pops)
 		for pop in self.pops:
@@ -174,7 +248,9 @@ class Population:
 		parents = Selection.get_selection(parent_sel, 
 			population=self.pops, 
 			scores=parent_scores, 
-			cutoff=num_offsprings)
+			cutoff=num_offsprings,
+			k = k_,
+			p = p_)
 
 		offsprings = []
 		for parent in parents:
@@ -184,8 +260,7 @@ class Population:
 
 		if overlap:
 			self.pops += offsprings
-		'''
-		This is temporarily commented out for speed (since num(parent)==num(offsprings) we can skip this computation)
+		
 		scores_, _ = Interaction.get_interaction(interaction, 
 			population=self.pops, 
 			fresh_mind=self.fresh_mind, 
@@ -194,10 +269,11 @@ class Population:
 		self.pops = Selection.get_selection(survivor_sel, 
 			population=self.pops, 
 			scores=scores_, 
-			cutoff=self.population_size - 0 if overlap else num_offsprings)
-		'''
+			cutoff=self.population_size - 0 if overlap else num_offsprings,
+			k = k_,
+			p = p_)
+		
 		if not overlap:
-			self.pops = parents
 			self.pops += offsprings
 
 		
@@ -206,7 +282,7 @@ class Population:
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "data/pd_test"
+name = "data/Prisoner/prisoner_tourt_o"
 prisoner = [[[1,4],[3,3]],
 				[[2,2],[4,1]]]
 
@@ -220,8 +296,8 @@ repetition = 10
 play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
-midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]])
-Pops = Population(10,2, repetition, fresh_mind=True, set_strategy=midway)
+midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]]) 
+Pops = Population(10,2, repetition, fresh_mind=True)
 name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
@@ -237,10 +313,12 @@ for i in range(iterations):
 		payoff_matrix_= np.asarray([[p_matrix[0][1],p_matrix[0][0]],
 						[p_matrix[1][1],p_matrix[1][0]]]),
 		interaction = "pairwise",
-		parent_sel = "truncation",
+		parent_sel = "tournament",
 		survivor_sel = "truncation",
-		overlap = False,
-		num_offsprings = len(Pops.pops)//2)
+		overlap = True,
+		num_offsprings = len(Pops.pops),
+		k_ = 3,
+		p_ = 0.5)
 
 	for key in combinations:
 		tally[key] += [combinations[key]]
@@ -261,21 +339,22 @@ plt.legend(list(tally.keys()))
 plt.savefig(fname=name+".png")
 plt.show()
 
-with open(name + ".csv", "w", newline="") as f:
-	f_writer = csv.writer(f)
-	f_writer.writerow(["Seed", rand_seed])
-	f_writer.writerow(["Action", "Start. P", "C|C", "C|D", ])
-	for i in range(len(Pops.pops)):
-		mat = Pops.pops[i].matrix
-		for r in range(mat.shape[0]):
-			for c in range(1,mat.shape[1]):
-				mat[r,c] = round(mat[r,c]*100)/100
-		f_writer.writerows(mat)
-		f_writer.writerow([])
-		
-while True:
-	generation = int(input("Generation to peek: "))
-	for i, pop_matrix in enumerate(fossils[generation]):
-		print("--- Agent {0} ---".format(i))
-		for row in pop_matrix:
-			print(row)
+workbook = xlsxwriter.Workbook(name + '.xlsx')
+header = ["Action", "Start. P"]
+borderline = [1, Pops.state_size+1] 
+border = workbook.add_format({'right': 2})
+
+for i, generation in enumerate(fossils):
+	generation_sheet = workbook.add_worksheet(str(i))
+	cells_array = []
+	cells_array += [header]
+	for j, matrix in enumerate(generation):
+		cells_array += [[""]]
+		cells_array += [["Agent {0}".format(j)]]
+		for row in matrix:
+			cells_array += [row]
+	for r, row in enumerate(cells_array):
+		for k, cell in enumerate(row):
+			generation_sheet.write(r, k, cell, border if k in borderline else None)
+workbook.close()
+
