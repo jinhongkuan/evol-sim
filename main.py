@@ -282,7 +282,7 @@ class Population:
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "data/Prisoner/prisoner_tourt_o"
+name = "data/Prisoner/prisoner_tt6states_o"
 prisoner = [[[1,4],[3,3]],
 				[[2,2],[4,1]]]
 
@@ -297,7 +297,7 @@ play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
 midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]]) 
-Pops = Population(10,2, repetition, fresh_mind=True)
+Pops = Population(10,6, repetition, fresh_mind=True)
 name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
@@ -313,7 +313,7 @@ for i in range(iterations):
 		payoff_matrix_= np.asarray([[p_matrix[0][1],p_matrix[0][0]],
 						[p_matrix[1][1],p_matrix[1][0]]]),
 		interaction = "pairwise",
-		parent_sel = "tournament",
+		parent_sel = "truncation",
 		survivor_sel = "truncation",
 		overlap = True,
 		num_offsprings = len(Pops.pops),
