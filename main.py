@@ -282,7 +282,7 @@ class Population:
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "data/Prisoner/prisoner_tt6states_o"
+name = "data/Prisoner/prisoner_ep2states3_o"
 prisoner = [[[1,4],[3,3]],
 				[[2,2],[4,1]]]
 
@@ -297,7 +297,7 @@ play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
 midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]]) 
-Pops = Population(10,6, repetition, fresh_mind=True)
+Pops = Population(10,2, repetition, fresh_mind=True)
 name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
@@ -329,8 +329,9 @@ for i in range(iterations):
 			all_matrices += copy([pop.matrix])
 		fossils += [all_matrices]
 
+interactions_per_generation = sum([tally[key][0] for key in tally])
 for key in tally:
-	plt.plot([sum(tally[key][i*window:(i+1)*window])/window for i in range(iterations//window)])
+	plt.plot([(sum(tally[key][i*window:(i+1)*window])/window)/(interactions_per_generation) for i in range(iterations//window)])
 
  
 
