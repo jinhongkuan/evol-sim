@@ -5,7 +5,11 @@ import matplotlib.pyplot as plt
 import xlsxwriter 
 import os 
 import time
+from collections import Counter
 class MDP_Learner:
+
+	def get_submatrix(self, key, obs):
+		return self.matrix[key][:, 2+obs*self.state_size: 2+(obs+1)*self.state_size]
 
 	def compute_similarity(self, other):
 		if self.state_size != other.state_size:
@@ -38,59 +42,76 @@ class MDP_Learner:
 		return row/sum(row)
 
 	def make_matrix_consistent(self):
-		self.matrix = np.concatenate((self.matrix[:,0:1], 
-		abs(self.matrix[:,1:2]/sum(self.matrix[:,1:2])),
-		np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,2:self.state_size+2]),
-		np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[:,self.state_size+2:])), axis=1) 
+		for key in type_space:
+			self.matrix[key] = np.concatenate((self.matrix[key][:,0:1], 
+			abs(self.matrix[key][:,1:2]/sum(self.matrix[key][:,1:2])),
+			np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[key][:,2:self.state_size+2]),
+			np.apply_along_axis(MDP_Learner._normalize, 1, self.matrix[key][:,self.state_size+2:])), axis=1) 
+
+	def get_type(self):
+		global type_threshold 
+		return max([i for i in range(len(type_threshold)) if type_threshold[i] <= self.history])
 
 	def __init__(self, state_size, set_strategy=None):
-		# This matrix is a Nx(2N+1) representation of learning strategy 
+		# This matrix is an array of Nx(2N+1) representation of learning strategy 
 		# Each row represents a decision node, expressed in: action, trans. prob | opp. cooperate | opp. defect
-		if set_strategy is None:
-			self.matrix = np.concatenate(([[i%2] for i in range(state_size)],
-			[[1/state_size] for i in range(state_size)],
-			np.random.rand(state_size, state_size),
-			np.random.rand(state_size, state_size)), axis=1)
-		else:
-			self.matrix = set_strategy
+		self.history = 1 
+		self.matrix = {} 
+		self.action_matrix = {}
+		for key in type_space:
+			if set_strategy is None:
+				self.matrix[key] = np.concatenate(([[i%2] for i in range(state_size)],
+				[[1/state_size] for i in range(state_size)],
+				np.random.rand(state_size, state_size),
+				np.random.rand(state_size, state_size)), axis=1)
+			else:
+				self.matrix[key] = set_strategy
+
+			self.action_matrix[key] = np.asarray([[1 if i == self.matrix[key][n,0] else 0 for i in range(2)] for n in range(state_size)])
+
+		
+
 
 		
 		self.state_size = state_size
 		self.make_matrix_consistent()
-		self.state_index = np.random.choice(a=self.matrix.shape[0], p=self.matrix[:,1])
+		self.state_index = {}
+		for key in type_space:
+			self.state_index[key] = np.random.choice(a=self.matrix[key].shape[0], p=self.matrix[key][:,1])
 		self.prev_state_observation = (0,1)
 		self.age = 0
 		
-	def refresh(self):
-		self.state_index = np.random.choice(a=self.matrix.shape[0], p=self.matrix[:,1])
+	def refresh(self, key):
+		self.state_index[key] = np.random.choice(a=self.matrix[key].shape[0], p=self.matrix[key][:,1])
 
-	def play(self):
-		return self.matrix[self.state_index,0]
+	def play(self, key):
+		return self.matrix[key][self.state_index[key],0]
 
-	def observe(self, observation):
+	def observe(self, observation, key):
 		if observation is not None:
 			if observation == 0:
-				trans_prob = self.matrix[self.state_index, 2:self.state_size+2]
+				trans_prob = self.matrix[key][self.state_index[key], 2:self.state_size+2]
 			else:
-				trans_prob = self.matrix[self.state_index, self.state_size+2:]
+				trans_prob = self.matrix[key][self.state_index[key], self.state_size+2:]
 	
 			next_state = np.random.choice(range(self.state_size),p=trans_prob)
-			self.prev_state_observation = (self.state_index, int(next_state+2+observation*self.state_size))
-			self.state_index = next_state
+			self.prev_state_observation = (self.state_index[key], int(next_state+2+observation*self.state_size))
+			self.state_index[key] = next_state
 
 	
 
 
 	def mutate(self, rate):
-		# Mutate mixed strategy
-		self.matrix[:,1] += Mutation.pairwise_gaussian(rate, self.matrix[:,1])
-		
-		# Mutate transition probabilities 
-		for i in range(self.matrix.shape[0]):
-			for obs_shift in range(2): # Do calculation separately for the Obs(Coop) and Ops(Defect) sets of columns
-				shift = 2 + obs_shift * self.state_size
-				mutation = Mutation.pairwise_gaussian(rate,self.matrix[i,shift:shift+self.state_size])
-				self.matrix[i,shift:shift+self.state_size] += mutation
+		for key in type_space:
+			# Mutate mixed strategy
+			self.matrix[key][:,1] += Mutation.pairwise_gaussian(rate, self.matrix[key][:,1])
+			
+			# Mutate transition probabilities 
+			for i in range(self.matrix[key].shape[0]):
+				for obs_shift in range(2): # Do calculation separately for the Obs(Coop) and Ops(Defect) sets of columns
+					shift = 2 + obs_shift * self.state_size
+					mutation = Mutation.pairwise_gaussian(rate,self.matrix[key][i,shift:shift+self.state_size])
+					self.matrix[key][i,shift:shift+self.state_size] += mutation
 
 		self.make_matrix_consistent() # Only to fix floating-point error
 
@@ -200,25 +221,71 @@ class Interaction:
 		fresh_mind = kwargs["fresh_mind"]
 		payoff_matrix = kwargs["payoff_matrix"]
 
+		len_sigma = population[0].action_matrix[0].shape[1]
 		scores = [0]*len(population)
 		combinations = copy(template_combinations)
+		total_action = np.zeros((len_sigma, len(population))) # Keeps track of each agent's last moves, used to build reputation 
+
 		for i in range(len(population)):
 			for j in range(i+1, len(population)):
+				# Lin Alg approach 
+				P_i = population[i].matrix[population[j].get_type()][:,1]
+				P_j = population[j].matrix[population[i].get_type()][:,1]
+				# print('Contest between --')
+				# print(population[i].matrix[population[j].get_type()])
+				# print('&')
+				# print(population[j].matrix[population[i].get_type()])
 				for k in range(repetition):
-					i_play = int(population[i].play())
-					j_play = int(population[j].play())
-					population[i].observe(j_play)
-					population[j].observe(i_play)
+					'''
+					add total actions mechanism
+					i_play = int(population[i].play(population[j].get_type()))
+					j_play = int(population[j].play(population[i].get_type()))
+					population[i].observe(j_play, population[j].get_type())
+					population[j].observe(i_play, population[i].get_type())
 					scores[i] += payoff_matrix[i_play,j_play,0]
 					scores[j] += payoff_matrix[i_play,j_play,1]
 					play = play_to_str[i_play+j_play]
 					if play not in combinations:
 						combinations[play] = 0 
 					combinations[play] += 1
+					
+					'''
+					A_i = np.matmul(np.transpose(P_i), population[i].action_matrix[population[j].get_type()])
+					A_j = np.matmul(np.transpose(P_j), population[j].action_matrix[population[i].get_type()])
+					
+					
+					# print('Score I: {0}'.format(np.sum(combination_matrix * payoff_matrix[:,:,0])))
+					# print('Score J: {0}'.format(np.sum(combination_matrix * payoff_matrix[:,:,1])))
+					# We can do some eigenvector shiz to get the infinite horizon eq.
+					# input()
+					TA_i = sum([population[i].get_submatrix(population[j].get_type(), k) * A_j[k] for k in range(2)])
+					TA_j = sum([population[j].get_submatrix(population[i].get_type(), k) * A_i[k] for k in range(2)])
+					
+					
+					P_i = np.matmul(np.transpose(TA_i), P_i) 
+					P_j = np.matmul(np.transpose(TA_j), P_j) 
+					
+					# Prevent floating-point error
+					P_i /= np.sum(P_i)
+					P_j /= np.sum(P_j)
+					# print('TA I: {0}'.format(TA_i))
+					# print('TA J: {0}'.format(TA_j))
+					# print()
+					# print('P I: {0}'.format(P_i))
+					# print('P J: {0}'.format(P_j))
 				if fresh_mind:
-					population[i].refresh()
-					population[j].refresh()
-		return scores, combinations
+					population[i].refresh(population[j].get_type())
+					population[j].refresh(population[i].get_type())
+				combination_matrix = np.outer(A_i, A_j) 
+				# print(combination_matrix)
+				total_action[:, i] += A_i
+				total_action[:, j] += A_j
+				combinations["CC"] += combination_matrix[0,0]
+				combinations["C/D"] += combination_matrix[0,1] + combination_matrix[1,0]
+				combinations["DD"] += combination_matrix[1,1]
+				scores[i] += np.sum(combination_matrix * payoff_matrix[:,:,0])
+				scores[j] += np.sum(combination_matrix * payoff_matrix[:,:,1])
+		return scores, combinations, total_action
 
 	@staticmethod
 	def get_interaction(command, **kwargs):
@@ -240,10 +307,14 @@ class Population:
 		for pop in self.pops:
 			pop.age += 1
 
-		parent_scores, combinations = Interaction.get_interaction(interaction, 
+		parent_scores, combinations, total_actions = Interaction.get_interaction(interaction, 
 			population=self.pops, 
 			fresh_mind=self.fresh_mind, 
 			payoff_matrix=payoff_matrix_)
+
+		# Update post-interaction history
+		for i in range(len(self.pops)):
+			self.pops[i].history = self.pops[i].history * (1-reputation_update) + total_actions[0, i] / (np.sum(total_actions[:, i])) * reputation_update
 
 		parents = Selection.get_selection(parent_sel, 
 			population=self.pops, 
@@ -261,7 +332,7 @@ class Population:
 		if overlap:
 			self.pops += offsprings
 		
-		scores_, _ = Interaction.get_interaction(interaction, 
+		scores_, _, _ = Interaction.get_interaction(interaction, 
 			population=self.pops, 
 			fresh_mind=self.fresh_mind, 
 			payoff_matrix=payoff_matrix_)
@@ -282,17 +353,25 @@ class Population:
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "data/Prisoner/prisoner_ep2states3_o"
+name = "data/Prisoner/prisoner_ep2states4_o"
 prisoner = [[[1,4],[3,3]],
 				[[2,2],[4,1]]]
 
 no_conflict = [[[3,2],[4,4]],
 				[[1,1],[2,3]]]
-p_matrix = prisoner
-iterations = 10000
 
+chicken = [[[2,4],[3,3]],
+				[[1,1],[4,2]]]
+
+battle = [[[3,4],[2,2]],
+				[[1,1],[4,3]]]
+p_matrix = prisoner
+iterations = 500
+type_space = range(1)
+type_threshold = [0.0]
 window = 25
-repetition = 10
+repetition = 5
+reputation_update = 0.5 
 play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
@@ -302,12 +381,10 @@ name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
 
-test_gene_coverage = []
 fossils = []
+type_fossils = dict([(key, []) for key in type_space])
+
 for i in range(iterations):
-	
-	for pop in Pops.pops:
-		test_gene_coverage += [pop.matrix[0,2]] 
 
 	combinations = Pops.aggregate_selection(
 		payoff_matrix_= np.asarray([[p_matrix[0][1],p_matrix[0][0]],
@@ -322,22 +399,34 @@ for i in range(iterations):
 
 	for key in combinations:
 		tally[key] += [combinations[key]]
+
+	type_distribution = Counter([pop.get_type() for pop in Pops.pops])
+	for key in type_distribution:
+		type_fossils[key] += [type_distribution[key]]
+
 	if i % window == 0:
 		print(i)
 		all_matrices = []
 		for pop in Pops.pops:
-			all_matrices += copy([pop.matrix])
+			all_matrices += copy([(pop.matrix, pop.get_type())])
 		fossils += [all_matrices]
 
 interactions_per_generation = sum([tally[key][0] for key in tally])
+print(interactions_per_generation)
 for key in tally:
 	plt.plot([(sum(tally[key][i*window:(i+1)*window])/window)/(interactions_per_generation) for i in range(iterations//window)])
 
  
 
 plt.legend(list(tally.keys()))
-
 plt.savefig(fname=name+".png")
+plt.show()
+
+plt.figure()
+for key in type_space:
+	plt.plot(type_fossils[key])
+plt.legend(["Type {0}".format(key) for key in type_space])
+plt.savefig(fname=name+"_typedist.png")
 plt.show()
 
 workbook = xlsxwriter.Workbook(name + '.xlsx')
@@ -350,10 +439,13 @@ for i, generation in enumerate(fossils):
 	cells_array = []
 	cells_array += [header]
 	for j, matrix in enumerate(generation):
+		matrix, agent_type = matrix
 		cells_array += [[""]]
-		cells_array += [["Agent {0}".format(j)]]
-		for row in matrix:
-			cells_array += [row]
+		cells_array += [["Agent {0}, type {1}".format(j, agent_type)]]
+		for key in matrix:
+			cells_array += [["Type {0}".format(key)]]
+			for row in matrix[key]:
+				cells_array += [row]
 	for r, row in enumerate(cells_array):
 		for k, cell in enumerate(row):
 			generation_sheet.write(r, k, cell, border if k in borderline else None)
