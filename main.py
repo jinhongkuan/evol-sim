@@ -155,7 +155,7 @@ class Selection:
 		population = kwargs["population"]
 		cutoff = kwargs["cutoff"]
 
-		return np.random.choice(population, size=cutoff)
+		return list(np.random.choice(population, size=cutoff))
 
 	@staticmethod 
 	def roulette_wheel(kwargs):
@@ -163,7 +163,7 @@ class Selection:
 		score = kwargs["scores"]
 		cutoff = kwargs["cutoff"]
 
-		return np.random.choice(population, size=cutoff, p=score)
+		return list(np.random.choice(population, size=cutoff, p=score/sum(score)))
 	
 	@staticmethod 
 	def rank_selection(kwargs):
@@ -225,7 +225,7 @@ class Interaction:
 		scores = [0]*len(population)
 		combinations = copy(template_combinations)
 		total_action = np.zeros((len_sigma, len(population))) # Keeps track of each agent's last moves, used to build reputation 
-
+		pairwise_action = {}
 		for i in range(len(population)):
 			for j in range(i+1, len(population)):
 				# Lin Alg approach 
@@ -253,7 +253,7 @@ class Interaction:
 					A_i = np.matmul(np.transpose(P_i), population[i].action_matrix[population[j].get_type()])
 					A_j = np.matmul(np.transpose(P_j), population[j].action_matrix[population[i].get_type()])
 					
-					
+					# combination_matrix = np.outer(A_i, A_j) 
 					# print('Score I: {0}'.format(np.sum(combination_matrix * payoff_matrix[:,:,0])))
 					# print('Score J: {0}'.format(np.sum(combination_matrix * payoff_matrix[:,:,1])))
 					# We can do some eigenvector shiz to get the infinite horizon eq.
@@ -280,12 +280,14 @@ class Interaction:
 				# print(combination_matrix)
 				total_action[:, i] += A_i
 				total_action[:, j] += A_j
+				pairwise_action[(i,j)] = (A_i, A_j)
+
 				combinations["CC"] += combination_matrix[0,0]
 				combinations["C/D"] += combination_matrix[0,1] + combination_matrix[1,0]
 				combinations["DD"] += combination_matrix[1,1]
 				scores[i] += np.sum(combination_matrix * payoff_matrix[:,:,0])
 				scores[j] += np.sum(combination_matrix * payoff_matrix[:,:,1])
-		return scores, combinations, total_action
+		return scores, combinations, total_action, pairwise_action
 
 	@staticmethod
 	def get_interaction(command, **kwargs):
@@ -307,7 +309,7 @@ class Population:
 		for pop in self.pops:
 			pop.age += 1
 
-		parent_scores, combinations, total_actions = Interaction.get_interaction(interaction, 
+		parent_scores, combinations, total_actions, pairwise_action = Interaction.get_interaction(interaction, 
 			population=self.pops, 
 			fresh_mind=self.fresh_mind, 
 			payoff_matrix=payoff_matrix_)
@@ -315,6 +317,13 @@ class Population:
 		# Update post-interaction history
 		for i in range(len(self.pops)):
 			self.pops[i].history = self.pops[i].history * (1-reputation_update) + total_actions[0, i] / (np.sum(total_actions[:, i])) * reputation_update
+
+		# Find behavioral similarity
+		action_difference = []
+		for i in range(len(self.pops)):
+			for j in range(i+1, len(self.pops)):
+				action_difference += [sum([(a-b)**2 for a,b in zip(pairwise_action[(i,j)][0],pairwise_action[(i,j)][1])])/total_actions.shape[0]]
+		
 
 		parents = Selection.get_selection(parent_sel, 
 			population=self.pops, 
@@ -328,11 +337,11 @@ class Population:
 			offsprings += [deepcopy(parent)]
 			offsprings[-1].age = 0
 			offsprings[-1].mutate(0.02) 
-
+		
 		if overlap:
 			self.pops += offsprings
 		
-		scores_, _, _ = Interaction.get_interaction(interaction, 
+		scores_, _, _, _ = Interaction.get_interaction(interaction, 
 			population=self.pops, 
 			fresh_mind=self.fresh_mind, 
 			payoff_matrix=payoff_matrix_)
@@ -348,12 +357,12 @@ class Population:
 			self.pops += offsprings
 
 		
-		return combinations
+		return combinations, sum(action_difference)/len(action_difference)
 
 rand_seed = time.time()
 random.seed(rand_seed)
 # Change these
-name = "data/Prisoner/prisoner_ep2states4_o"
+name = "data/Prisoner/prisoner_ep2states_1000_o"
 prisoner = [[[1,4],[3,3]],
 				[[2,2],[4,1]]]
 
@@ -365,28 +374,32 @@ chicken = [[[2,4],[3,3]],
 
 battle = [[[3,4],[2,2]],
 				[[1,1],[4,3]]]
+
+stag_hunt = [[[1,3],[4,4]],
+				[[2,2],[3,1]]]
 p_matrix = prisoner
-iterations = 500
+iterations = 1000
 type_space = range(1)
 type_threshold = [0.0]
-window = 25
+window = 5
 repetition = 5
 reputation_update = 0.5 
 play_to_str = {2 : "DD", 1 : "C/D", 0 : "CC"}
 template_combinations = {"DD":0, "C/D":0, "CC":0}
 tit_for_tat = np.asarray([[0,1.0,1.0,0.0,0.0,1.0], [1,0.0,1.0,0.0,0.0,1.0]])
 midway = np.asarray([[0,1.0,0.5,0.5,0.5,0.5], [1,0.0,0.5,0.5,0.5,0.5]]) 
-Pops = Population(10,2, repetition, fresh_mind=True)
+Pops = Population(20,2, repetition, fresh_mind=True, set_strategy=tit_for_tat)
 name += "_" + str(len(Pops.pops)) + "players"
 np.set_printoptions(precision=2, suppress=True)
 tally = {"CC":[], "C/D":[], "DD":[]}
 
 fossils = []
 type_fossils = dict([(key, []) for key in type_space])
+behavioral_diff = []
 
 for i in range(iterations):
 
-	combinations = Pops.aggregate_selection(
+	combinations, mse = Pops.aggregate_selection(
 		payoff_matrix_= np.asarray([[p_matrix[0][1],p_matrix[0][0]],
 						[p_matrix[1][1],p_matrix[1][0]]]),
 		interaction = "pairwise",
@@ -396,6 +409,8 @@ for i in range(iterations):
 		num_offsprings = len(Pops.pops),
 		k_ = 3,
 		p_ = 0.5)
+
+	behavioral_diff += [mse]
 
 	for key in combinations:
 		tally[key] += [combinations[key]]
@@ -427,6 +442,10 @@ for key in type_space:
 	plt.plot(type_fossils[key])
 plt.legend(["Type {0}".format(key) for key in type_space])
 plt.savefig(fname=name+"_typedist.png")
+plt.show()
+
+plt.figure()
+plt.plot([sum(behavioral_diff[i*window:i*window+window])/window for i in range(len(behavioral_diff)//window)])
 plt.show()
 
 workbook = xlsxwriter.Workbook(name + '.xlsx')
