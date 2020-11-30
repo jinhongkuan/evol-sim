@@ -6,6 +6,10 @@ import xlsxwriter
 import os 
 import time
 import argparse
+from scipy import stats
+import scipy 
+import math
+import sklearn.metrics
 class MDP_Learner:
 
 	def compute_similarity(self, other):
@@ -96,26 +100,107 @@ class MDP_Learner:
 		self.make_matrix_consistent() # Only to fix floating-point error
 
 class Mutation:
+
+	@staticmethod 
+	def linear_gaussian(rate, array):
+		temp_array = copy(array)
+		element_mutate = np.random.uniform(size=array.shape[0])
+		for i in range(array.shape[0]):
+			if element_mutate[i] < rate:
+				temp_array[i] += np.random.uniform(-0.02,0.02)
+				if temp_array[i] < 0:
+					temp_array[i] = 0
+				elif temp_array[i] > 1:
+					temp_array[i] = 1
+		
+		if sum(temp_array) == 0:
+			print("0")
+		temp_array /= sum(temp_array)
+		
+		return temp_array - array 
+
+
 	@staticmethod
 	def pairwise_gaussian(rate, array):
-		normal_values = np.zeros(len(array))
-		projected = copy(array)
-		for i in range(len(projected)):
-			j = (i+1) % len(projected)
-			alpha = np.random.normal(loc=0, scale=rate)
-			normal_values[i] += alpha 
-			normal_values[j] -= alpha  
-			projected[i] += alpha 
-			projected[j] -= alpha 
-		min_scaling = 1.0
-		for i in range(len(normal_values)):
-			i_after = projected[i]
-			excess = i_after - 1 if i_after > 1 else abs(min(0, i_after))
-			scaling = 1 - excess/abs(normal_values[i])
-			min_scaling = min(min_scaling, scaling)
-		normal_values *= min_scaling
+		delta = np.zeros(len(array))
+		for _ in range(len(array)):
+			i = np.random.randint(0, len(array))
+			sel = set(range(len(array)))
+			sel.remove(i)
+			j = np.random.choice(list(sel))
+			alpha = abs(np.random.normal(loc=0, scale=rate))
+			alpha = min([alpha, 1 - (array[i]+delta[i]), (array[j]+delta[j])])
+			delta[i] += alpha 
+			delta[j] -= alpha 
+		return delta
 
-		return normal_values
+	@staticmethod
+	def verify_mutation_methods():
+		
+		plottable_linear = {"x":[], "y":[], "err":[]}
+		plottable_pairwise = {"x":[], "y":[], "err":[]}
+		sample_size = 400
+		for iterations_exp in np.linspace(10,15,32):
+			iterations = int(2**iterations_exp)
+			gene_tracker = { "linear": [], "pairwise": []}
+			average_entropy = {"linear": [], "pairwise": []}
+			for _ in range(sample_size):
+				gene_tracker["linear"] += [[]]
+				gene_tracker["pairwise"] += [[]]
+				base_gene = np.ones(4)/4
+				test_gene = copy(base_gene)
+				for i in range(iterations):
+					test_gene += Mutation.linear_gaussian(0.5, test_gene)
+					gene_tracker["linear"][-1] += [copy(test_gene)]
+				
+				test_gene = copy(base_gene)
+				for i in range(iterations):
+					test_gene += Mutation.pairwise_gaussian(0.01, test_gene)
+					gene_tracker["pairwise"][-1] += [copy(test_gene)]
+
+				
+
+			gene_tracker["linear"] = np.asarray(gene_tracker["linear"])
+			gene_tracker["pairwise"] = np.asarray(gene_tracker["pairwise"])
+
+
+			for i in range(gene_tracker["linear"].shape[0]):
+				unique_1, counts_1 = np.unique(np.argmax(gene_tracker["linear"][i], axis=1), return_counts=True)
+				unique_1 = { key:value for key,value in zip(unique_1, counts_1)}
+				counts_1 = np.zeros(len(base_gene))
+				for key in unique_1:
+					counts_1[key] = unique_1[key]
+				unique_2, counts_2 = np.unique(np.argmax(gene_tracker["pairwise"][i], axis=1),return_counts=True)
+				unique_2 = { key:value for key,value in zip(unique_2, counts_2)}
+				counts_2 = np.zeros(len(base_gene))
+				for key in unique_2:
+					counts_2[key] = unique_2[key]
+				proper = np.ones(len(base_gene)) / len(base_gene)
+				_, p_val_linear = scipy.stats.chisquare(counts_1 / sum(counts_1), proper)
+				_, p_val_pairwise = scipy.stats.chisquare(counts_2 / sum(counts_2), proper)
+				average_entropy["linear"] += [p_val_linear]
+				average_entropy["pairwise"] += [p_val_pairwise]
+				
+			plottable_linear["x"] += [iterations_exp]
+			plottable_pairwise["x"] += [iterations_exp]
+			plottable_linear["y"] += [np.mean(average_entropy["linear"])]
+			plottable_pairwise["y"] += [np.mean(average_entropy["pairwise"])]
+			plottable_linear["err"] += [np.std(average_entropy["linear"])/math.sqrt(sample_size)]
+			plottable_pairwise["err"] += [np.std(average_entropy["linear"])/math.sqrt(sample_size)]
+			
+		import pickle 
+		with open('plottable.pck', 'wb') as f:
+			pickle.dump(plottable_linear, f)
+			pickle.dump(plottable_pairwise, f)
+		plt.figure(figsize=(10,5))
+		plt.errorbar(plottable_linear["x"], plottable_linear["y"], plottable_linear["err"],capsize=5, elinewidth=1, label="Linear Normalization")
+		plt.errorbar(plottable_pairwise["x"], plottable_pairwise["y"], plottable_pairwise["err"],capsize=5, elinewidth=1, label="Proposed Mechanism")
+		plt.xlabel("Ln Num. Iterations", size=12)
+		plt.ylabel("p-value", size=12)
+		plt.legend(prop={'size':12})
+
+		
+		plt.show()
 
 class Selection:
 	@staticmethod
@@ -341,7 +426,8 @@ if __name__ == "__main__":
 	parser.add_argument("--mean_score_dist", nargs=2, type=int, default=[0,0])
 	parser.add_argument("--par_sel", default="uniform_random")
 	parser.add_argument("--surv_sel", default="truncation")
-	parser.add_argument("--interaction", default="pairwise")
+	parser.add_argument("--interaction", default="pairwise_matrix")
+	parser.add_argument("--default", action='store_true')
 	args = parser.parse_args() 
 	
 	prisoner = [[[1,4],[3,3]],
@@ -354,6 +440,11 @@ if __name__ == "__main__":
 		"prisoner" : prisoner,
 		"no_conflict" : no_conflict
 	}
+
+	if args.game == "verify_mutation":
+		Mutation.verify_mutation_methods()
+		exit(0) 
+
 	if args.game not in games:
 		raise ValueError("Game not defined")
 
@@ -386,17 +477,6 @@ if __name__ == "__main__":
 		num_runs = heatmap 
 	elif mean_score_dist > 0:
 		num_runs = mean_score_dist
-
-	# if command == "truncation":
-	# 	return Selection.truncation(kwargs)
-	# elif command == "uniform_random":
-	# 	return Selection.uniform_random(kwargs)
-	# elif command == "roulette_wheel":
-	# 	return Selection.roulette_wheel(kwargs)
-	# elif command == "rank_selection":
-	# 	return Selection.rank_selection(kwargs)
-	# elif command == "tournament_selection":
-	# 	return Selection.tournament_selection(kwargs)
 
 	ps = args.par_sel
 	ss = args.surv_sel
@@ -484,11 +564,18 @@ if __name__ == "__main__":
 			display_heatmap(hmap, range(iterations), percentages)
 		elif mean_score_dist > 0:
 			plt.figure()
-			plt.hist(mean_scores, bins=20, range=(2,3))
+			plt.hist(mean_scores, bins=40, range=(2,3))
 			plt.savefig(name+".png")
-			
-	for ps in ["truncation", "uniform_random", "roulette_wheel"]:
-		for ss in ["truncation", "uniform_random"]:
-			for ol in [True, False]:
-				name = "data/%s/%s+%s+%s" % (args.game, ps, ss, str(ol))
-				run_simulation(ps, ss, ol, name)
+	
+	
+	if args.default:
+		mean_score_dist = 30
+		mean_score_discard = 200
+		num_runs = mean_score_dist
+		for ps in ["truncation", "uniform_random", "roulette_wheel"]:
+			for ss in ["truncation", "uniform_random"]:
+				for ol in [True, False]:
+					name = "data/%s/%s+%s+%s" % (args.game, ps, ss, str(ol))
+					run_simulation(ps, ss, ol, name)
+	else:
+		run_simulation(ps, ss, ol, name)
