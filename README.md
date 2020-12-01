@@ -36,3 +36,7 @@ The following parameters can be customized for single-run simulations:
 `surv_sel`: Survival selection method (truncation/uniform_random/roulette_wheel) 
 
 `overlap`: Toggle competition between parents and offsprings 
+
+## Extended Proofs
+
+The derivations for Eq. 8 of the paper can be found [here](https://github.com/jinhongkuan/evol-sim/blob/master/Proof1.pdf).
