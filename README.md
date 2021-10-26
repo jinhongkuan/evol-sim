@@ -1,4 +1,24 @@
 # evol-sim
+
+This repository was is linked to work that was used in the paper - *Emergence and Stability of Self-Evolved Cooperative Strategies using Stochastic Machines*. This paper was published in the IEEE Symposium Series on Computational Intelligence (SSCI) 2020.
+
+Please note that the code is still in a maintenance state.
+
+If you find this code or paper useful in your research, please consider citing:
+
+Please cite this paper:
+
+```
+@inproceedings{kuan2020emergence,
+  title={Emergence and Stability of Self-Evolved Cooperative Strategies using Stochastic Machines},
+  author={Kuan, Jin Hong and Salecha, Aadesh},
+  booktitle={2020 IEEE Symposium Series on Computational Intelligence (SSCI)},
+  pages={1179--1186},
+  year={2020},
+  organization={IEEE}
+}
+```
+
 A study on the emergence of cooperation using stochastic Moore machines by [Jin Hong Kuan](https://github.com/jinhongkuan) and [Aadesh Salecha](https://github.com/AadeshSalecha) 
 
 The scripts are written for Python 3.7.
